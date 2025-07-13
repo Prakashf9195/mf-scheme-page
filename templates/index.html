@@ -1,86 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Mutual Fund Scheme Search</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background-color: #f9f9f9;
-        }
-        h1 {
-            color: #333;
-        }
-        form {
-            margin-bottom: 30px;
-        }
-        input[type="text"] {
-            width: 400px;
-            padding: 10px;
-            font-size: 16px;
-        }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #007BFF;
-            border: none;
-            color: white;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .scheme-details {
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            width: 600px;
-        }
-        ul {
-            list-style: none;
-            padding-left: 0;
-        }
-        li {
-            background-color: #eee;
-            margin-bottom: 5px;
-            padding: 8px;
-            border-radius: 5px;
-        }
-        .label {
-            font-weight: bold;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Mutual Fund Scheme Search</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background-color: #f9f9f9;
+    }
+    input[type="text"] {
+      width: 400px;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .suggestions {
+      border: 1px solid #ccc;
+      max-height: 200px;
+      overflow-y: auto;
+      width: 422px;
+      position: absolute;
+      background: white;
+      z-index: 999;
+    }
+    .suggestions div {
+      padding: 8px;
+      cursor: pointer;
+    }
+    .suggestions div:hover {
+      background: #f0f0f0;
+    }
+    .scheme-details {
+      margin-top: 40px;
+      background-color: white;
+      padding: 20px;
+      width: 600px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+  </style>
 </head>
 <body>
-    <h1>🔍 Search Mutual Fund Scheme</h1>
-    <form method="POST">
-        <input type="text" name="scheme_name" list="schemes" placeholder="Start typing scheme name..." value="{{ selected_name }}" required>
-        <datalist id="schemes">
-            {% for scheme in all_schemes %}
-                <option value="{{ scheme.scheme_name }}">
-            {% endfor %}
-        </datalist>
-        <button type="submit">Search</button>
-    </form>
+  <h1>🔍 Search Mutual Fund Scheme</h1>
+  <form method="POST" autocomplete="off">
+    <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." value="{{ selected_name }}" required>
+    <div id="suggestions" class="suggestions"></div>
+    <button type="submit" style="margin-top: 10px;">Search</button>
+  </form>
 
-    {% if scheme_data %}
-        <div class="scheme-details">
-            <h2>{{ scheme_data.meta.scheme_name }}</h2>
-            <p><span class="label">Fund House:</span> {{ scheme_data.meta.fund_house }}</p>
-            <p><span class="label">Scheme Type:</span> {{ scheme_data.meta.scheme_type }}</p>
-            <p><span class="label">Category:</span> {{ scheme_data.meta.scheme_category }}</p>
+  {% if scheme_data %}
+    <div class="scheme-details">
+      <h2>{{ scheme_data.meta.scheme_name }}</h2>
+      <p><strong>Fund House:</strong> {{ scheme_data.meta.fund_house }}</p>
+      <p><strong>Scheme Type:</strong> {{ scheme_data.meta.scheme_type }}</p>
+      <p><strong>Category:</strong> {{ scheme_data.meta.scheme_category }}</p>
+      <h3>📈 Last 5 NAVs:</h3>
+      <ul>
+        {% for nav in scheme_data.data[:5] %}
+          <li>{{ nav.date }} – ₹{{ nav.nav }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% elif selected_name %}
+    <p style="color: red;">No matching scheme found. Please check the spelling.</p>
+  {% endif %}
 
-            <h3>📈 Last 5 NAVs:</h3>
-            <ul>
-                {% for nav in scheme_data.data[:5] %}
-                    <li>{{ nav.date }} – ₹{{ nav.nav }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    {% elif selected_name %}
-        <p style="color: red;">No matching scheme found. Please check the spelling.</p>
-    {% endif %}
+  <script>
+    const allSchemes = {{ all_schemes | tojson }};
+    const input = document.getElementById('scheme_name');
+    const suggestions = document.getElementById('suggestions');
+
+    input.addEventListener('input', () => {
+      const query = input.value.toLowerCase();
+      suggestions.innerHTML = '';
+
+      if (query.length === 0) return;
+
+      const matches = allSchemes.filter(s =>
+        s.scheme_name && s.scheme_name.toLowerCase().includes(query)
+      ).slice(0, 50);  // Limit results
+
+      matches.forEach(match => {
+        const div = document.createElement('div');
+        div.textContent = match.scheme_name;
+        div.addEventListener('click', () => {
+          input.value = match.scheme_name;
+          suggestions.innerHTML = '';
+        });
+        suggestions.appendChild(div);
+      });
+    });
+
+    // Hide suggestions if clicked outside
+    document.addEventListener('click', e => {
+      if (!suggestions.contains(e.target) && e.target !== input) {
+        suggestions.innerHTML = '';
+      }
+    });
+  </script>
 </body>
 </html>
