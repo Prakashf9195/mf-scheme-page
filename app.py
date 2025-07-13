@@ -53,13 +53,20 @@ def index():
         elif len(selected_name) > 200:
             error_message = "Scheme name is too long (max 200 characters)."
         else:
-            # Partial, case-insensitive matching
+            # Split query into terms for progressive matching
+            terms = selected_name.lower().split()
             matching_schemes = [
                 s for s in all_schemes 
-                if selected_name.lower() in s.get('scheme_name', '').strip().lower()
+                if all(term in s.get('scheme_name', '').lower() for term in terms)
             ]
             if not matching_schemes:
-                error_message = f"No schemes found matching '{selected_name}'. Please check the spelling."
+                # Fallback to fuzzy matching for suggestions
+                from fuzzywuzzy import fuzz
+                matching_schemes = [
+                    s for s in all_schemes
+                    if fuzz.partial_ratio(selected_name.lower(), s.get('scheme_name', '').lower()) > 70
+                ][:10]
+                error_message = f"No exact schemes found matching '{selected_name}'. Try one of the suggestions below."
             elif len(matching_schemes) == 1:
                 scheme_code = matching_schemes[0]['scheme_code']
                 scheme_data = get_scheme_details(scheme_code)
