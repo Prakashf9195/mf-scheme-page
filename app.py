@@ -25,8 +25,15 @@ def index():
     selected_name = request.form.get('scheme_name', '').strip()
 
     if request.method == 'POST' and selected_name:
-        # Match exact name (case insensitive)
-        matching = [s for s in all_schemes if s.get('scheme_name', '').strip().lower() == selected_name.lower()]
+        normalized_selected = selected_name.lower()
+
+        # Try exact match
+        matching = [s for s in all_schemes if s.get('scheme_name', '').strip().lower() == normalized_selected]
+
+        # If no exact match, fallback to partial match
+        if not matching:
+            matching = [s for s in all_schemes if normalized_selected in s.get('scheme_name', '').strip().lower()]
+
         if matching:
             scheme_code = matching[0]['scheme_code']
             scheme_data = get_scheme_details(scheme_code)
