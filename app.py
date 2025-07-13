@@ -28,7 +28,7 @@ def index():
     if request.method == 'POST':
         selected_name = request.form.get('scheme_name')
         # Find scheme code based on exact match
-        matching = [s for s in all_schemes if s['scheme_name'].lower() == selected_name.lower()]
+        matching = [s for s in all_schemes if s.get('scheme_name', '').lower() == selected_name.lower()]
         if matching:
             scheme_code = matching[0]['scheme_code']
             scheme_data = get_scheme_details(scheme_code)
