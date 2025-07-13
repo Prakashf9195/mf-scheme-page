@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mutual Fund Scheme Search</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -65,6 +66,7 @@
     <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." aria-label="Search mutual fund schemes" required>
     <div id="suggestions" class="suggestions" role="listbox"></div>
     <button type="submit" id="submitBtn" style="margin-top: 10px;">Search</button>
+    <button type="button" id="clearBtn" style="margin-top: 10px; margin-left: 5px;">Clear</button>
     <span id="loading" style="display: none;">Loading...</span>
   </form>
 
@@ -77,32 +79,35 @@
     <ul id="navList"></ul>
     <canvas id="navChart" width="600" height="300"></canvas>
   </div>
-  <p id="error" style="color: red; display: none;">No matching scheme found. Please check the spelling.</p>
+  <p id="error" style="color: red; display: none;"></p>
 
   <script>
-    // Mock data (replace with actual backend data)
+    // Mock data with more Axis funds
     const allSchemes = [
+      { scheme_name: "Axis Bluechip Fund" },
+      { scheme_name: "Axis Small Cap Fund" },
+      { scheme_name: "Axis Long Term Equity Fund" },
+      { scheme_name: "Axis Midcap Fund" },
       { scheme_name: "SBI Bluechip Fund" },
       { scheme_name: "HDFC Small Cap Fund" },
-      { scheme_name: "Axis Long Term Equity Fund" },
       { scheme_name: "ICICI Prudential Balanced Advantage" },
       { scheme_name: "Mirae Asset Large Cap Fund" }
     ];
 
-    // Mock scheme data for demonstration
+    // Mock scheme data for Axis Small Cap Fund
     const mockSchemeData = {
       meta: {
-        scheme_name: "SBI Bluechip Fund",
-        fund_house: "SBI Mutual Fund",
+        scheme_name: "Axis Small Cap Fund",
+        fund_house: "Axis Mutual Fund",
         scheme_type: "Equity",
-        scheme_category: "Large Cap"
+        scheme_category: "Small Cap"
       },
       data: [
-        { date: "2025-07-09", nav: 45.123 },
-        { date: "2025-07-10", nav: 45.567 },
-        { date: "2025-07-11", nav: 46.012 },
-        { date: "2025-07-12", nav: 46.789 },
-        { date: "2025-07-13", nav: 47.234 }
+        { date: "2025-07-09", nav: 32.456 },
+        { date: "2025-07-10", nav: 32.789 },
+        { date: "2025-07-11", nav: 33.123 },
+        { date: "2025-07-12", nav: 33.567 },
+        { date: "2025-07-13", nav: 34.012 }
       ]
     };
 
@@ -110,16 +115,16 @@
     const suggestions = document.getElementById('suggestions');
     const form = document.querySelector('form');
     const submitBtn = document.getElementById('submitBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const loading = document.getElementById('loading');
     const schemeDetails = document.getElementById('schemeDetails');
     const error = document.getElementById('error');
 
-    // Debounced autocomplete
     let timeout;
     input.addEventListener('input', () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
-        const query = input.value.toLowerCase();
+        const query = input.value.trim().toLowerCase();
         suggestions.innerHTML = '';
         if (query.length === 0) return;
 
@@ -128,14 +133,29 @@
           return;
         }
 
-        const matches = allSchemes.filter(s =>
-          s.scheme_name && s.scheme_name.toLowerCase().includes(query)
-        ).slice(0, 50);
+        // Split query into terms
+        const terms = query.split(/\s+/).filter(term => term.length > 0);
+
+        // Filter schemes where all terms appear in scheme_name
+        const matches = allSchemes.filter(s => {
+          const name = s.scheme_name.toLowerCase();
+          return terms.every(term => name.includes(term));
+        }).slice(0, 50);
+
+        // Use Fuse.js for fuzzy matching if no exact matches
+        if (matches.length === 0) {
+          const fuse = new Fuse(allSchemes, { keys: ['scheme_name'], threshold: 0.4 });
+          matches.push(...fuse.search(query).map(result => result.item).slice(0, 50));
+        }
 
         matches.forEach(match => {
           const div = document.createElement('div');
-          const regex = new RegExp(`(${query})`, 'gi');
-          div.innerHTML = match.scheme_name.replace(regex, '<strong>$1</strong>');
+          let displayName = match.scheme_name;
+          terms.forEach(term => {
+            const regex = new RegExp(`(${term})`, 'gi');
+            displayName = displayName.replace(regex, '<strong>$1</strong>');
+          });
+          div.innerHTML = displayName;
           div.addEventListener('click', () => {
             input.value = match.scheme_name;
             suggestions.innerHTML = '';
@@ -145,19 +165,27 @@
       }, 300);
     });
 
-    // Clear suggestions on outside click
     document.addEventListener('click', e => {
       if (!suggestions.contains(e.target) && e.target !== input) {
         suggestions.innerHTML = '';
       }
     });
 
-    // Mock form submission (replace with actual backend call)
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      suggestions.innerHTML = '';
+      schemeDetails.style.display = 'none';
+      error.style.display = 'none';
+    });
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const query = input.value;
+      const query = input.value.trim();
       const exactMatch = allSchemes.some(s => s.scheme_name === query);
       if (!exactMatch) {
+        const fuse = new Fuse(allSchemes, { keys: ['scheme_name'], threshold: 0.4 });
+        const suggestions = fuse.search(query).map(result => result.item.scheme_name).slice(0, 3);
+        error.innerHTML = `No matching scheme found for "${query}". Did you mean: ${suggestions.join(', ') || 'no similar schemes'}?`;
         error.style.display = 'block';
         schemeDetails.style.display = 'none';
         return;
@@ -166,10 +194,8 @@
       submitBtn.disabled = true;
       loading.style.display = 'inline';
 
-      // Simulate backend delay
       setTimeout(() => {
-        // Mock response
-        const schemeData = query === "SBI Bluechip Fund" ? mockSchemeData : null;
+        const schemeData = query === "Axis Small Cap Fund" ? mockSchemeData : null;
 
         submitBtn.disabled = false;
         loading.style.display = 'none';
@@ -185,7 +211,6 @@
           const navList = document.getElementById('navList');
           navList.innerHTML = schemeData.data.map(nav => `<li>${nav.date} – ₹${nav.nav.toFixed(3)}</li>`).join('');
 
-          // Render chart
           const ctx = document.getElementById('navChart').getContext('2d');
           new Chart(ctx, {
             type: 'line',
@@ -211,7 +236,7 @@
           error.style.display = 'block';
           schemeDetails.style.display = 'none';
         }
-      }, 1000); // Simulate 1s backend delay
+      }, 1000);
     });
   </script>
 </body>
