@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mutual Fund Scheme Search</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -39,13 +38,20 @@
     .suggestions div strong {
       color: #007bff;
     }
-    .scheme-details {
+    .scheme-details, .matching-schemes {
       margin-top: 40px;
       background-color: white;
       padding: 20px;
       width: 100%;
       max-width: 600px;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .matching-schemes div {
+      padding: 8px;
+      cursor: pointer;
+    }
+    .matching-schemes div:hover {
+      background: #f0f0f0;
     }
     #loading {
       margin-left: 10px;
@@ -54,7 +60,7 @@
       body {
         margin: 20px;
       }
-      .scheme-details {
+      .scheme-details, .matching-schemes {
         padding: 15px;
       }
     }
@@ -63,62 +69,51 @@
 <body>
   <h1>🔍 Search Mutual Fund Scheme</h1>
   <form method="POST" autocomplete="off">
-    <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." aria-label="Search mutual fund schemes" required>
+    <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." value="{{ selected_name | safe }}" aria-label="Search mutual fund schemes" required>
     <div id="suggestions" class="suggestions" role="listbox"></div>
     <button type="submit" id="submitBtn" style="margin-top: 10px;">Search</button>
     <button type="button" id="clearBtn" style="margin-top: 10px; margin-left: 5px;">Clear</button>
     <span id="loading" style="display: none;">Loading...</span>
   </form>
 
-  <div class="scheme-details" id="schemeDetails" style="display: none;">
-    <h2 id="schemeName"></h2>
-    <p><strong>Fund House:</strong> <span id="fundHouse"></span></p>
-    <p><strong>Scheme Type:</strong> <span id="schemeType"></span></p>
-    <p><strong>Category:</strong> <span id="schemeCategory"></span></p>
-    <h3>📈 Last 5 NAVs:</h3>
-    <ul id="navList"></ul>
-    <canvas id="navChart" width="600" height="300"></canvas>
-  </div>
-  <p id="error" style="color: red; display: none;"></p>
+  {% if scheme_data %}
+    <div class="scheme-details">
+      <h2>{{ scheme_data.meta.scheme_name }}</h2>
+      <p><strong>Fund House:</strong> {{ scheme_data.meta.fund_house }}</p>
+      <p><strong>Scheme Type:</strong> {{ scheme_data.meta.scheme_type }}</p>
+      <p><strong>Category:</strong> {{ scheme_data.meta.scheme_category }}</p>
+      <h3>📈 Last 5 NAVs:</h3>
+      <ul>
+        {% for nav in scheme_data.data[:5] %}
+          <li>{{ nav.date }} – ₹{{ nav.nav }}</li>
+        {% endfor %}
+      </ul>
+      <canvas id="navChart" width="600" height="300"></canvas>
+    </div>
+  {% endif %}
+
+  {% if error_message %}
+    <p style="color: red;">{{ error_message }}</p>
+    {% if matching_schemes %}
+      <div class="matching-schemes">
+        <h3>Select a Scheme:</h3>
+        {% for scheme in matching_schemes %}
+          <div onclick="document.getElementById('scheme_name').value = '{{ scheme.scheme_name | safe }}'; document.querySelector('form').submit();">
+            {{ scheme.scheme_name }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endif %}
 
   <script>
-    // Mock data with more Axis funds
-    const allSchemes = [
-      { scheme_name: "Axis Bluechip Fund" },
-      { scheme_name: "Axis Small Cap Fund" },
-      { scheme_name: "Axis Long Term Equity Fund" },
-      { scheme_name: "Axis Midcap Fund" },
-      { scheme_name: "SBI Bluechip Fund" },
-      { scheme_name: "HDFC Small Cap Fund" },
-      { scheme_name: "ICICI Prudential Balanced Advantage" },
-      { scheme_name: "Mirae Asset Large Cap Fund" }
-    ];
-
-    // Mock scheme data for Axis Small Cap Fund
-    const mockSchemeData = {
-      meta: {
-        scheme_name: "Axis Small Cap Fund",
-        fund_house: "Axis Mutual Fund",
-        scheme_type: "Equity",
-        scheme_category: "Small Cap"
-      },
-      data: [
-        { date: "2025-07-09", nav: 32.456 },
-        { date: "2025-07-10", nav: 32.789 },
-        { date: "2025-07-11", nav: 33.123 },
-        { date: "2025-07-12", nav: 33.567 },
-        { date: "2025-07-13", nav: 34.012 }
-      ]
-    };
-
+    const allSchemes = {{ all_schemes | tojson | safe }};
     const input = document.getElementById('scheme_name');
     const suggestions = document.getElementById('suggestions');
     const form = document.querySelector('form');
     const submitBtn = document.getElementById('submitBtn');
     const clearBtn = document.getElementById('clearBtn');
     const loading = document.getElementById('loading');
-    const schemeDetails = document.getElementById('schemeDetails');
-    const error = document.getElementById('error');
 
     let timeout;
     input.addEventListener('input', () => {
@@ -129,23 +124,19 @@
         if (query.length === 0) return;
 
         if (!allSchemes || !Array.isArray(allSchemes)) {
-          suggestions.innerHTML = '<div>No schemes available</div>';
+          suggestions.innerHTML = '<div>No schemes available. Please try again later.</div>';
           return;
         }
 
         // Split query into terms
         const terms = query.split(/\s+/).filter(term => term.length > 0);
-
-        // Filter schemes where all terms appear in scheme_name
         const matches = allSchemes.filter(s => {
           const name = s.scheme_name.toLowerCase();
           return terms.every(term => name.includes(term));
         }).slice(0, 50);
 
-        // Use Fuse.js for fuzzy matching if no exact matches
         if (matches.length === 0) {
-          const fuse = new Fuse(allSchemes, { keys: ['scheme_name'], threshold: 0.4 });
-          matches.push(...fuse.search(query).map(result => result.item).slice(0, 50));
+          suggestions.innerHTML = '<div>No matching schemes found. Try a different spelling or contact support.</div>';
         }
 
         matches.forEach(match => {
@@ -159,6 +150,7 @@
           div.addEventListener('click', () => {
             input.value = match.scheme_name;
             suggestions.innerHTML = '';
+            form.submit();
           });
           suggestions.appendChild(div);
         });
@@ -174,70 +166,41 @@
     clearBtn.addEventListener('click', () => {
       input.value = '';
       suggestions.innerHTML = '';
-      schemeDetails.style.display = 'none';
-      error.style.display = 'none';
     });
 
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const query = input.value.trim();
-      const exactMatch = allSchemes.some(s => s.scheme_name === query);
-      if (!exactMatch) {
-        const fuse = new Fuse(allSchemes, { keys: ['scheme_name'], threshold: 0.4 });
-        const suggestions = fuse.search(query).map(result => result.item.scheme_name).slice(0, 3);
-        error.innerHTML = `No matching scheme found for "${query}". Did you mean: ${suggestions.join(', ') || 'no similar schemes'}?`;
-        error.style.display = 'block';
-        schemeDetails.style.display = 'none';
-        return;
-      }
-
+    form.addEventListener('submit', () => {
       submitBtn.disabled = true;
       loading.style.display = 'inline';
-
-      setTimeout(() => {
-        const schemeData = query === "Axis Small Cap Fund" ? mockSchemeData : null;
-
-        submitBtn.disabled = false;
-        loading.style.display = 'none';
-
-        if (schemeData) {
-          error.style.display = 'none';
-          schemeDetails.style.display = 'block';
-          document.getElementById('schemeName').textContent = schemeData.meta.scheme_name;
-          document.getElementById('fundHouse').textContent = schemeData.meta.fund_house;
-          document.getElementById('schemeType').textContent = schemeData.meta.scheme_type;
-          document.getElementById('schemeCategory').textContent = schemeData.meta.scheme_category;
-
-          const navList = document.getElementById('navList');
-          navList.innerHTML = schemeData.data.map(nav => `<li>${nav.date} – ₹${nav.nav.toFixed(3)}</li>`).join('');
-
-          const ctx = document.getElementById('navChart').getContext('2d');
-          new Chart(ctx, {
-            type: 'line',
-            data: {
-              labels: schemeData.data.map(item => item.date),
-              datasets: [{
-                label: 'NAV (₹)',
-                data: schemeData.data.map(item => item.nav),
-                borderColor: '#007bff',
-                backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                fill: true,
-              }]
-            },
-            options: {
-              responsive: true,
-              scales: {
-                x: { title: { display: true, text: 'Date' } },
-                y: { title: { display: true, text: 'NAV (₹)' } }
-              }
-            }
-          });
-        } else {
-          error.style.display = 'block';
-          schemeDetails.style.display = 'none';
-        }
-      }, 1000);
     });
+
+    {% if scheme_data %}
+      const navData = {{ scheme_data.data[:5] | tojson | safe }};
+      const chartData = navData.map(item => ({
+        date: item.date,
+        nav: parseFloat(item.nav)
+      }));
+      const ctx = document.getElementById('navChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: chartData.map(item => item.date),
+          datasets: [{
+            label: 'NAV (₹)',
+            data: chartData.map(item => item.nav),
+            borderColor: '#007bff',
+            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+            fill: true,
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Date' } },
+            y: { title: { display: true, text: 'NAV (₹)' } }
+          }
+        }
+      });
+    {% endif %}
   </script>
 </body>
 </html>
