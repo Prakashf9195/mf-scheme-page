@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mutual Fund Search</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script>
+        function filterSchemes() {
+            let input = document.getElementById("schemeInput").value.toLowerCase();
+            let datalist = document.getElementById("schemeList");
+            let options = datalist.options;
+
+            for (let option of options) {
+                option.hidden = !option.value.toLowerCase().includes(input);
+            }
+        }
+    </script>
+</head>
+<body class="container mt-5">
+
+    <h2>Search Mutual Fund Scheme by Name</h2>
+    <form method="POST">
+        <input list="schemeList" name="scheme_name" id="schemeInput" oninput="filterSchemes()" class="form-control mb-2" placeholder="Start typing scheme name..." required>
+        <datalist id="schemeList">
+            {% for scheme in all_schemes %}
+                <option value="{{ scheme.scheme_name }}">
+            {% endfor %}
+        </datalist>
+        <button class="btn btn-primary">Get Details</button>
+    </form>
+
+    {% if scheme_data %}
+        <hr>
+        <h4>{{ scheme_data.meta.scheme_name }}</h4>
+        <p><strong>Fund House:</strong> {{ scheme_data.meta.fund_house }}</p>
+        <p><strong>Scheme Type:</strong> {{ scheme_data.meta.scheme_type }}</p>
+        <p><strong>Category:</strong> {{ scheme_data.meta.scheme_category }}</p>
+        <h5>Latest NAV: ₹{{ scheme_data.data[0].nav }} ({{ scheme_data.data[0].date }})</h5>
+
+        <h5 class="mt-4">Last 5 NAVs</h5>
+        <ul>
+            {% for item in scheme_data.data[:5] %}
+                <li>{{ item.date }} - ₹{{ item.nav }}</li>
+            {% endfor %}
+        </ul>
+    {% elif selected_name %}
+        <div class="alert alert-warning mt-3">Scheme "{{ selected_name }}" not found. Try exact match from list.</div>
+    {% endif %}
+</body>
+</html>
