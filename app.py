@@ -5,6 +5,8 @@ import os
 from functools import lru_cache
 import logging
 import time
+import csv
+from io import StringIO
 
 app = Flask(__name__)
 
@@ -131,23 +133,48 @@ FALLBACK_DETAILS = {
 
 @lru_cache(maxsize=100)
 def get_all_schemes():
-    """Fetch and return list of mutual fund schemes from mfapi.in."""
+    """Fetch schemes from AMFI or fallback to mfapi.in."""
+    # Try AMFI NAV data first
+    url = "https://www.amfiindia.com/spages/NAVAll.txt"
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            schemes = []
+            csv_data = csv.reader(StringIO(response.text), delimiter=';')
+            next(csv_data)  # Skip header
+            for row in csv_data:
+                if len(row) >= 6 and row[4].replace('.', '', 1).isdigit():  # Ensure valid NAV
+                    schemes.append({
+                        "scheme_code": row[0],
+                        "scheme_name": row[3],
+                        "fund_house": row[1],
+                        "scheme_type": row[2],
+                        "scheme_category": row[2]
+                    })
+            logger.info(f"Loaded {len(schemes)} schemes from AMFI")
+            return schemes if schemes else FALLBACK_SCHEMES
+        except RequestException as e:
+            logger.error(f"Attempt {attempt + 1} failed fetching AMFI schemes: {e}")
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    
+    # Fallback to mfapi.in
     url = "https://api.mfapi.in/mf"
-    for attempt in range(3):  # Retry up to 3 times
+    for attempt in range(3):
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             schemes = response.json()
             valid_schemes = [s for s in schemes if s.get('scheme_name') and isinstance(s.get('scheme_name'), str)]
-            logger.info(f"Loaded {len(valid_schemes)} schemes from API")
+            logger.info(f"Loaded {len(valid_schemes)} schemes from mfapi.in")
             return valid_schemes if valid_schemes else FALLBACK_SCHEMES
         except RequestException as e:
-            logger.error(f"Attempt {attempt + 1} failed fetching schemes: {e}")
+            logger.error(f"Attempt {attempt + 1} failed fetching mfapi.in schemes: {e}")
             if attempt < 2:
-                time.sleep(2 ** attempt)  # Exponential backoff: 2s, 4s
-            else:
-                logger.info("Using fallback schemes")
-                return FALLBACK_SCHEMES
+                time.sleep(2 ** attempt)
+    logger.info("Using fallback schemes")
+    return FALLBACK_SCHEMES
 
 @lru_cache(maxsize=100)
 def get_scheme_details(scheme_code):
@@ -167,9 +194,8 @@ def get_scheme_details(scheme_code):
             logger.error(f"Attempt {attempt + 1} failed fetching scheme {scheme_code}: {e}")
             if attempt < 2:
                 time.sleep(2 ** attempt)
-            else:
-                logger.info(f"No details found for scheme {scheme_code}")
-                return None
+    logger.info(f"No details found for scheme {scheme_code}")
+    return None
 
 # Load schemes at startup
 all_schemes = get_all_schemes()
@@ -208,7 +234,7 @@ def index():
                 scheme_code = matching_schemes[0]['scheme_code']
                 scheme_data = get_scheme_details(scheme_code)
                 if not scheme_data or 'meta' not in scheme_data:
-                    error_message = f"Failed to fetch details for '{selected_name}'. The API may be down or the scheme code ({scheme_code}) is invalid."
+                    error_message = f"Failed to fetch details for '{selected_name}' (scheme code: {scheme_code}). The API may be down or the scheme code is invalid."
                     matching_schemes = [
                         s for s in all_schemes
                         if selected_name.lower() in s.get('scheme_name', '').lower()
