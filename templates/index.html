@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mutual Fund Scheme Search</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -10,15 +12,18 @@
       background-color: #f9f9f9;
     }
     input[type="text"] {
-      width: 400px;
+      width: 100%;
+      max-width: 400px;
       padding: 10px;
       font-size: 16px;
+      box-sizing: border-box;
     }
     .suggestions {
       border: 1px solid #ccc;
       max-height: 200px;
       overflow-y: auto;
-      width: 422px;
+      width: 100%;
+      max-width: 400px;
       position: absolute;
       background: white;
       z-index: 999;
@@ -30,70 +35,183 @@
     .suggestions div:hover {
       background: #f0f0f0;
     }
+    .suggestions div strong {
+      color: #007bff;
+    }
     .scheme-details {
       margin-top: 40px;
       background-color: white;
       padding: 20px;
-      width: 600px;
+      width: 100%;
+      max-width: 600px;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    #loading {
+      margin-left: 10px;
+    }
+    @media (max-width: 600px) {
+      body {
+        margin: 20px;
+      }
+      .scheme-details {
+        padding: 15px;
+      }
     }
   </style>
 </head>
 <body>
   <h1>🔍 Search Mutual Fund Scheme</h1>
   <form method="POST" autocomplete="off">
-    <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." value="{{ selected_name }}" required>
-    <div id="suggestions" class="suggestions"></div>
-    <button type="submit" style="margin-top: 10px;">Search</button>
+    <input type="text" id="scheme_name" name="scheme_name" placeholder="Start typing scheme name..." aria-label="Search mutual fund schemes" required>
+    <div id="suggestions" class="suggestions" role="listbox"></div>
+    <button type="submit" id="submitBtn" style="margin-top: 10px;">Search</button>
+    <span id="loading" style="display: none;">Loading...</span>
   </form>
 
-  {% if scheme_data %}
-    <div class="scheme-details">
-      <h2>{{ scheme_data.meta.scheme_name }}</h2>
-      <p><strong>Fund House:</strong> {{ scheme_data.meta.fund_house }}</p>
-      <p><strong>Scheme Type:</strong> {{ scheme_data.meta.scheme_type }}</p>
-      <p><strong>Category:</strong> {{ scheme_data.meta.scheme_category }}</p>
-      <h3>📈 Last 5 NAVs:</h3>
-      <ul>
-        {% for nav in scheme_data.data[:5] %}
-          <li>{{ nav.date }} – ₹{{ nav.nav }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-  {% elif selected_name %}
-    <p style="color: red;">No matching scheme found. Please check the spelling.</p>
-  {% endif %}
+  <div class="scheme-details" id="schemeDetails" style="display: none;">
+    <h2 id="schemeName"></h2>
+    <p><strong>Fund House:</strong> <span id="fundHouse"></span></p>
+    <p><strong>Scheme Type:</strong> <span id="schemeType"></span></p>
+    <p><strong>Category:</strong> <span id="schemeCategory"></span></p>
+    <h3>📈 Last 5 NAVs:</h3>
+    <ul id="navList"></ul>
+    <canvas id="navChart" width="600" height="300"></canvas>
+  </div>
+  <p id="error" style="color: red; display: none;">No matching scheme found. Please check the spelling.</p>
 
   <script>
-    const allSchemes = {{ all_schemes | tojson | safe }};
+    // Mock data (replace with actual backend data)
+    const allSchemes = [
+      { scheme_name: "SBI Bluechip Fund" },
+      { scheme_name: "HDFC Small Cap Fund" },
+      { scheme_name: "Axis Long Term Equity Fund" },
+      { scheme_name: "ICICI Prudential Balanced Advantage" },
+      { scheme_name: "Mirae Asset Large Cap Fund" }
+    ];
+
+    // Mock scheme data for demonstration
+    const mockSchemeData = {
+      meta: {
+        scheme_name: "SBI Bluechip Fund",
+        fund_house: "SBI Mutual Fund",
+        scheme_type: "Equity",
+        scheme_category: "Large Cap"
+      },
+      data: [
+        { date: "2025-07-09", nav: 45.123 },
+        { date: "2025-07-10", nav: 45.567 },
+        { date: "2025-07-11", nav: 46.012 },
+        { date: "2025-07-12", nav: 46.789 },
+        { date: "2025-07-13", nav: 47.234 }
+      ]
+    };
+
     const input = document.getElementById('scheme_name');
     const suggestions = document.getElementById('suggestions');
+    const form = document.querySelector('form');
+    const submitBtn = document.getElementById('submitBtn');
+    const loading = document.getElementById('loading');
+    const schemeDetails = document.getElementById('schemeDetails');
+    const error = document.getElementById('error');
 
+    // Debounced autocomplete
+    let timeout;
     input.addEventListener('input', () => {
-      const query = input.value.toLowerCase();
-      suggestions.innerHTML = '';
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        const query = input.value.toLowerCase();
+        suggestions.innerHTML = '';
+        if (query.length === 0) return;
 
-      if (query.length === 0) return;
+        if (!allSchemes || !Array.isArray(allSchemes)) {
+          suggestions.innerHTML = '<div>No schemes available</div>';
+          return;
+        }
 
-      const matches = allSchemes.filter(s =>
-        s.scheme_name && s.scheme_name.toLowerCase().includes(query)
-      ).slice(0, 50);
+        const matches = allSchemes.filter(s =>
+          s.scheme_name && s.scheme_name.toLowerCase().includes(query)
+        ).slice(0, 50);
 
-      matches.forEach(match => {
-        const div = document.createElement('div');
-        div.textContent = match.scheme_name;
-        div.addEventListener('click', () => {
-          input.value = match.scheme_name;
-          suggestions.innerHTML = '';
+        matches.forEach(match => {
+          const div = document.createElement('div');
+          const regex = new RegExp(`(${query})`, 'gi');
+          div.innerHTML = match.scheme_name.replace(regex, '<strong>$1</strong>');
+          div.addEventListener('click', () => {
+            input.value = match.scheme_name;
+            suggestions.innerHTML = '';
+          });
+          suggestions.appendChild(div);
         });
-        suggestions.appendChild(div);
-      });
+      }, 300);
     });
 
+    // Clear suggestions on outside click
     document.addEventListener('click', e => {
       if (!suggestions.contains(e.target) && e.target !== input) {
         suggestions.innerHTML = '';
       }
+    });
+
+    // Mock form submission (replace with actual backend call)
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const query = input.value;
+      const exactMatch = allSchemes.some(s => s.scheme_name === query);
+      if (!exactMatch) {
+        error.style.display = 'block';
+        schemeDetails.style.display = 'none';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      loading.style.display = 'inline';
+
+      // Simulate backend delay
+      setTimeout(() => {
+        // Mock response
+        const schemeData = query === "SBI Bluechip Fund" ? mockSchemeData : null;
+
+        submitBtn.disabled = false;
+        loading.style.display = 'none';
+
+        if (schemeData) {
+          error.style.display = 'none';
+          schemeDetails.style.display = 'block';
+          document.getElementById('schemeName').textContent = schemeData.meta.scheme_name;
+          document.getElementById('fundHouse').textContent = schemeData.meta.fund_house;
+          document.getElementById('schemeType').textContent = schemeData.meta.scheme_type;
+          document.getElementById('schemeCategory').textContent = schemeData.meta.scheme_category;
+
+          const navList = document.getElementById('navList');
+          navList.innerHTML = schemeData.data.map(nav => `<li>${nav.date} – ₹${nav.nav.toFixed(3)}</li>`).join('');
+
+          // Render chart
+          const ctx = document.getElementById('navChart').getContext('2d');
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: schemeData.data.map(item => item.date),
+              datasets: [{
+                label: 'NAV (₹)',
+                data: schemeData.data.map(item => item.nav),
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                fill: true,
+              }]
+            },
+            options: {
+              responsive: true,
+              scales: {
+                x: { title: { display: true, text: 'Date' } },
+                y: { title: { display: true, text: 'NAV (₹)' } }
+              }
+            }
+          });
+        } else {
+          error.style.display = 'block';
+          schemeDetails.style.display = 'none';
+        }
+      }, 1000); // Simulate 1s backend delay
     });
   </script>
 </body>
